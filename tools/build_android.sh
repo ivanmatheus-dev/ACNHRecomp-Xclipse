@@ -4,8 +4,10 @@
 # goes into the game folder on the phone with the data (tools/push_android.sh), never into the APK. Packs the APK,
 # signs it with a local debug key and, with --install, installs it on the phone connected by adb.
 #
-# usage: tools/build_android.sh [--install] [--jobs N] [--no-game]
+# usage: tools/build_android.sh [--install] [--jobs N] [--no-game] [--unsigned] [--require-radv]
 #   --no-game: the app only, without the game set up here (what a release carries)
+#   --unsigned: leave aligned.apk unsigned for signing by a separate trusted release job
+#   --require-radv: fail if the pinned RADV build is not present
 #   the Vulkan headers: private/third_party/Vulkan-Headers-1.4.357 (tools/setup_acnh.sh; the NDK's are older than
 #   what the runtime calls)
 #   needs: Android SDK with ndk;29.0.14206865, build-tools;35.0.0, platforms;android-35 (ANDROID_SDK_ROOT, default
@@ -25,6 +27,8 @@ if [ -z "${JAVA_HOME:-}" ] && [ -d /opt/homebrew/opt/openjdk@17 ]; then export J
 BUILD=private/$GAME/build-android
 OUT=private/$GAME/apk
 INSTALL=0
+UNSIGNED=0
+REQUIRE_RADV=0
 # Compile jobs: the cores, as many as the free memory holds (~700 MB each, as tools/setup_acnh.py counts them);
 # --jobs or JOBS= to choose.
 if [ -n "${JOBS:-}" ]; then :
@@ -46,11 +50,25 @@ while [ $# -gt 0 ]; do
     --install) INSTALL=1 ;;
     --jobs) JOBS=$2; shift ;;
     --no-game) GAMELIB=0 ;;
+    --unsigned) UNSIGNED=1 ;;
+    --require-radv) REQUIRE_RADV=1 ;;
     *) echo "unknown option $1"; exit 1 ;;
   esac
   shift
 done
+[ "$UNSIGNED" = 0 ] || [ "$INSTALL" = 0 ] || { echo "--install requires a signed APK" >&2; exit 1; }
 [ -d "$NDK" ] || { echo "NDK not found: $NDK"; exit 1; }
+RADV=private/third_party/radv-xclipse/build-android/src/amd/vulkan/libvulkan_radeon.so
+if [ "$REQUIRE_RADV" = 1 ] && [ ! -f "$RADV" ]; then
+  echo "RADV not found: run tools/build_radv_xclipse.sh first" >&2
+  exit 1
+fi
+if [ "$REQUIRE_RADV" = 1 ] &&
+   { [ "$(git -C private/third_party/radv-xclipse rev-parse HEAD)" != fe9b8943aaeec11ed9fccbfcc382da07379afbe5 ] ||
+     [ -n "$(git -C private/third_party/radv-xclipse status --porcelain --untracked-files=no)" ]; }; then
+  echo "RADV source is modified or not at the pinned revision" >&2
+  exit 1
+fi
 GEN=$PWD/private/$GAME/gen
 if [ $GAMELIB = 0 ]; then
   BUILD=private/$GAME/build-android-app
@@ -94,17 +112,22 @@ javac -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$PLATFORM" -cl
 cp $(find "$BUILD/_deps" -name "lib*hook*.so") "$OUT/lib/arm64-v8a/"
 TURNIP=private/third_party/mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so
 [ -f "$TURNIP" ] && cp "$TURNIP" "$OUT/lib/arm64-v8a/" || echo "(no Turnip: tools/build_turnip.sh; the phone's driver is used)"
-python3 tools/make_android_icon.py 2>/dev/null || true  # needs Pillow; the PNGs are kept in android/res otherwise
+[ -f "$RADV" ] && "$STRIP" --strip-unneeded -o "$OUT/lib/arm64-v8a/libvulkan_radeon.so" "$RADV"
+# Use the checked-in icons; packaging must not rewrite tracked assets.
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"
 "$BT/aapt2" link -o "$OUT/base.apk" --manifest android/AndroidManifest.xml -I "$PLATFORM" "$OUT/res.zip"
 # Do not bundle optional downloaded mods in this build.
 (cd "$OUT" && zip -q -r base.apk lib classes.dex)
 "$BT/zipalign" -f -P 16 4 "$OUT/base.apk" "$OUT/aligned.apk"
-KEY=private/android-debug.keystore
-[ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug \
-  -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ACNH Recomp debug" >/dev/null 2>&1
-"$BT/apksigner" sign --ks "$KEY" --ks-pass pass:android --out "$OUT/$GAME.apk" "$OUT/aligned.apk"
-ls -la "$OUT/$GAME.apk"
+if [ "$UNSIGNED" = 1 ]; then
+  echo "Unsigned APK: $OUT/aligned.apk"
+else
+  KEY=private/android-debug.keystore
+  [ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug \
+    -keyalg RSA -keysize 2048 -validity 10000 -dname "CN=ACNH Recomp debug" >/dev/null 2>&1
+  "$BT/apksigner" sign --ks "$KEY" --ks-pass pass:android --out "$OUT/$GAME.apk" "$OUT/aligned.apk"
+  ls -la "$OUT/$GAME.apk"
+fi
 
 if [ $INSTALL = 1 ]; then
   echo "== install"

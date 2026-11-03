@@ -27,6 +27,7 @@
             <meta-data android:name="android.app.shortcuts" android:resource="@xml/shortcuts"/>
         </activity>
         <activity android:name="android.app.NativeActivity" android:exported="true"
+                  android:process=":game"
                   android:screenOrientation="sensorLandscape" android:resizeableActivity="false"
                   android:configChanges="orientation|keyboardHidden|keyboard|screenSize|screenLayout|smallestScreenSize|uiMode|density|navigation"
                   android:theme="@style/Game">

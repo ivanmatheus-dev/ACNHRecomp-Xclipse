@@ -633,7 +633,9 @@ void page_video() {
 #endif
     row("video.shaders", "video.shaders.desc", [&](float w) { toggle("video.shader_prepare", true, w); });
 #if defined(__ANDROID__)
-    row("video.async_shaders", "video.async_shaders.desc", [&](float w) { toggle("video.async_shaders", true, w); });
+    row("video.async_shaders", "video.async_shaders.desc", [&](float w) {
+        toggle("video.async_shaders", std::getenv("NX_XCLIPSE_DEVICE") == nullptr, w);
+    });
 #else
     row("video.async_shaders", "video.async_shaders.desc", [&](float w) { toggle("video.async_shaders", false, w); });
 #endif
@@ -645,7 +647,6 @@ void page_video() {
                {"cool", tr("video.thermal.cool")}},
               w);
     });
-    row("video.root_clocks", "video.root_clocks.desc", [&](float w) { toggle("video.root_clocks", false, w); });
 #endif
 }
 

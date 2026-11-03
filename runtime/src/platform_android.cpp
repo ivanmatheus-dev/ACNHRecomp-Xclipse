@@ -50,6 +50,7 @@
 #include "kernel.h"
 #include "platform.h"
 #include "config.h"
+#include "android_driver_policy.h"
 #include "platform_android.h"
 
 #ifndef MAP_FIXED_NOREPLACE
@@ -64,6 +65,7 @@ namespace nx::plat {
 
 std::string g_native_lib_dir;  // ApplicationInfo.nativeLibraryDir: Turnip and libadrenotools' hooks
 std::string g_cache_dir;       // the app's own internal folder
+std::string g_vulkan_error;
 
 namespace {
 android_app* g_app = nullptr;
@@ -552,10 +554,7 @@ float default_render_scale() {
 
 void* load_vulkan();
 
-// The GPU driver (video.gpu_driver, NX_GPU_DRIVER: auto, turnip or system). On a Snapdragon phone, "auto" loads
-// Turnip (Mesa's Vulkan driver for Adreno, in the APK: tools/build_turnip.sh) through libadrenotools instead of the
-// phone's own driver: the Adreno 6xx ones phones ship are Vulkan 1.1, without dynamic rendering, and drew nothing of
-// the game. "system" keeps the phone's driver.
+// The renderer and UI must use the same loader for the lifetime of this process.
 void* vulkan_get_instance_proc_addr() {
     // Loaded once: a second libadrenotools load is a second copy of the driver, whose functions do not know the first
     // one's objects (the settings screen crashed binding its font texture's memory).
@@ -563,31 +562,142 @@ void* vulkan_get_instance_proc_addr() {
     return once;
 }
 
+struct VulkanProbe {
+    std::string name;
+    VkDriverId driver = VkDriverId(0);
+    uint32_t api = 0;
+};
+
+// Probe a loader without retaining its instance. In particular, verify the custom loader: adrenotools may otherwise
+// return a usable system driver when the hook did not actually install the requested driver.
+static VulkanProbe probe_vulkan(void* address) {
+    VulkanProbe out;
+    auto gipa = reinterpret_cast<PFN_vkGetInstanceProcAddr>(address);
+    if (!gipa) return out;
+    auto create = reinterpret_cast<PFN_vkCreateInstance>(gipa(nullptr, "vkCreateInstance"));
+    if (!create) return out;
+    VkApplicationInfo app{VK_STRUCTURE_TYPE_APPLICATION_INFO};
+    app.apiVersion = VK_API_VERSION_1_1;
+    VkInstanceCreateInfo ci{VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO};
+    ci.pApplicationInfo = &app;
+    VkInstance instance = VK_NULL_HANDLE;
+    if (create(&ci, nullptr, &instance) != VK_SUCCESS) return out;
+    auto enumerate = reinterpret_cast<PFN_vkEnumeratePhysicalDevices>(gipa(instance, "vkEnumeratePhysicalDevices"));
+    auto props = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties>(gipa(instance, "vkGetPhysicalDeviceProperties"));
+    auto props2 = reinterpret_cast<PFN_vkGetPhysicalDeviceProperties2>(gipa(instance, "vkGetPhysicalDeviceProperties2"));
+    auto destroy = reinterpret_cast<PFN_vkDestroyInstance>(gipa(instance, "vkDestroyInstance"));
+    uint32_t count = 0;
+    if (enumerate && props && destroy && enumerate(instance, &count, nullptr) == VK_SUCCESS && count) {
+        std::vector<VkPhysicalDevice> devices(count);
+        if (enumerate(instance, &count, devices.data()) == VK_SUCCESS && count) {
+            VkPhysicalDeviceProperties p{};
+            props(devices[0], &p);
+            out.name = p.deviceName;
+            out.api = p.apiVersion;
+            if (props2 && p.apiVersion >= VK_API_VERSION_1_2) {
+                VkPhysicalDeviceDriverProperties driver{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_DRIVER_PROPERTIES};
+                VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
+                p2.pNext = &driver;
+                props2(devices[0], &p2);
+                out.driver = driver.driverID;
+            }
+        }
+    }
+    if (destroy) destroy(instance, nullptr);
+    return out;
+}
+
+static void driver_notice(const std::string& message) {
+    if (!g_app) return;
+    JNIEnv* env = nullptr;
+    if (g_app->activity->vm->AttachCurrentThread(&env, nullptr) != JNI_OK || !env) return;
+    jclass cls = env->FindClass("android/widget/Toast");
+    if (cls) {
+        jmethodID make = env->GetStaticMethodID(cls, "makeText", "(Landroid/content/Context;Ljava/lang/CharSequence;I)Landroid/widget/Toast;");
+        jmethodID show = env->GetMethodID(cls, "show", "()V");
+        if (make && show) {
+            jstring text = env->NewStringUTF(message.c_str());
+            jobject toast = env->CallStaticObjectMethod(cls, make, g_app->activity->clazz, text, 1);
+            if (toast && !env->ExceptionCheck()) env->CallVoidMethod(toast, show);
+            if (toast) env->DeleteLocalRef(toast);
+            env->DeleteLocalRef(text);
+        }
+        env->DeleteLocalRef(cls);
+    }
+    if (env->ExceptionCheck()) env->ExceptionClear();
+}
+
 void* load_vulkan() {
-    std::string pick = std::getenv("NX_GPU_DRIVER") ? std::getenv("NX_GPU_DRIVER") : nx::config_get("video.gpu_driver", "auto");
+    std::string pick = nx::config_get("video.gpu_driver", "auto");
+    std::ifstream choice(g_cache_dir + "/gpu_driver.txt");
+    std::string saved;
+    if (std::getline(choice, saved) && !saved.empty()) pick = saved;
+    if (const char* e = std::getenv("NX_GPU_DRIVER")) pick = e;
     char vk[PROP_VALUE_MAX] = {};
     __system_property_get("ro.hardware.vulkan", vk);
-    const std::string turnip = g_native_lib_dir + "/libvulkan_freedreno.so";
-    if (pick != "system" && std::strcmp(vk, "adreno") == 0 && !g_native_lib_dir.empty() && access(turnip.c_str(), R_OK) == 0) {
+    void* system_lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
+    void* system_gipa = system_lib ? dlsym(system_lib, "vkGetInstanceProcAddr") : nullptr;
+    VulkanProbe system = probe_vulkan(system_gipa);
+    if (supported_xclipse(system.name)) {
+        setenv("NX_XCLIPSE_DEVICE", "1", 1);
+        // Preserve an explicit setting. Without one, wait for a pipeline instead of skipping its draw.
+        if (!std::getenv("NX_ASYNC_PIPELINES") && nx::config_get("video.async_shaders").empty())
+            setenv("NX_ASYNC_PIPELINES", "0", 0);
+    }
+    auto plan = android_driver_plan(pick, std::strcmp(vk, "adreno") == 0, system.name);
+    nx::log("vulkan: requested %s, system GPU '%s'", pick.c_str(), system.name.c_str());
+    if (plan.error) g_vulkan_error = plan.error;
+    std::string failure;
+    auto result = select_android_driver(plan, [&](AndroidDriver driver) -> void* {
+        if (driver == AndroidDriver::system) return system_gipa;
+        const char* name = driver == AndroidDriver::radv ? "libvulkan_radeon.so" : "libvulkan_freedreno.so";
+        const std::string path = g_native_lib_dir + "/" + name;
+        if (g_native_lib_dir.empty() || access(path.c_str(), R_OK) != 0) {
+            failure = std::string(name) + " is not present or readable";
+            return nullptr;
+        }
         // Binning on (Turnip's default): the main pass and the whole frame took much less GPU time with it on the S20
         // FE's Adreno 650 (the intro 27 -> ~18 ms a frame) and it ran without a fault through every test on 2026-10-26.
         // It once faulted the GPU on this game (a write at 0x40 from VSC/VPC); NX_TURNIP_NOBIN=1 turns it off again,
         // and config.txt can set TU_DEBUG itself.
-        if (const char* e = getenv("NX_TURNIP_NOBIN"); e && e[0] == '1') setenv("TU_DEBUG", "nobin", 0);
+        if (driver == AndroidDriver::turnip)
+            if (const char* e = getenv("NX_TURNIP_NOBIN"); e && e[0] == '1') setenv("TU_DEBUG", "nobin", 0);
         std::string tmp = g_cache_dir + "/adrenotools/";
         mkdir(tmp.c_str(), 0700);
         std::string libs = g_native_lib_dir + "/";
         if (void* h = adrenotools_open_libvulkan(RTLD_NOW, ADRENOTOOLS_DRIVER_CUSTOM, tmp.c_str(), libs.c_str(), libs.c_str(),
-                                                 "libvulkan_freedreno.so", nullptr, nullptr)) {
+                                                 name, nullptr, nullptr)) {
             if (void* gipa = dlsym(h, "vkGetInstanceProcAddr")) {
-                nx::log("vulkan: Turnip (Mesa) through libadrenotools, instead of the phone's Adreno driver");
-                return gipa;
+                VulkanProbe custom = probe_vulkan(gipa);
+                if (driver != AndroidDriver::radv || custom.driver == VK_DRIVER_ID_MESA_RADV) return gipa;
+                failure = "RADV loader did not expose a RADV physical device";
+                return nullptr;
             }
         }
-        nx::log("vulkan: Turnip could not be loaded (%s): the phone's driver", dlerror());
+        const char* error = dlerror();
+        failure = std::string("could not load ") + name + (error ? std::string(": ") + error : "");
+        return nullptr;
+    });
+    if (!failure.empty()) {
+        nx::log("vulkan: %s%s", failure.c_str(), result.effective == AndroidDriver::system ? "; using system" : "");
+        if (result.effective == AndroidDriver::system)
+            driver_notice("GPU driver: " + failure + "; using system driver.");
     }
-    void* lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
-    return lib ? dlsym(lib, "vkGetInstanceProcAddr") : nullptr;
+    if (!result.loader && g_vulkan_error.empty()) g_vulkan_error = failure.empty() ? "Vulkan system loader unavailable" : failure;
+    const char* effective = result.effective == AndroidDriver::radv ? "radv-xclipse" :
+                            result.effective == AndroidDriver::turnip ? "turnip" : result.effective == AndroidDriver::system ? "system" : "none";
+    nx::log("vulkan: effective driver %s", effective);
+    VulkanProbe selected = result.loader == system_gipa ? system : probe_vulkan(result.loader);
+    std::ofstream diag(g_cache_dir + "/gpu_diagnostic.txt", std::ios::trunc);
+    if (diag) {
+        diag << "GPU: " << (selected.name.empty() ? system.name : selected.name) << "\nDriver: " << effective
+             << "\nVulkan: " << VK_API_VERSION_MAJOR(selected.api) << "." << VK_API_VERSION_MINOR(selected.api) << "."
+             << VK_API_VERSION_PATCH(selected.api) << "\n";
+        if (result.effective == AndroidDriver::radv) diag << "RADV: fe9b8943aaeec11ed9fccbfcc382da07379afbe5\n";
+        if (!failure.empty()) diag << "Fallback/error: " << failure << "\n";
+        if (!g_vulkan_error.empty()) diag << "Error: " << g_vulkan_error << "\n";
+    }
+    return result.loader;
 }
 
 const char* vulkan_surface_extension() { return VK_KHR_ANDROID_SURFACE_EXTENSION_NAME; }
@@ -962,6 +1072,18 @@ extern "C" void android_main(android_app* app) {
     // config.ini (the settings screen's file, as on the other platforms): NX_* defaults for what config.txt left unset.
     // Without it the game language, frame generation and the frame rate chosen there were ignored on Android.
     nx::config_apply();
+    if (!vulkan_get_instance_proc_addr()) {
+        nx::log("vulkan: startup failed: %s", g_vulkan_error.c_str());
+        open_home(app, "Vulkan: " + g_vulkan_error);
+        ANativeActivity_finish(app->activity);
+        while (!app->destroyRequested) {
+            int events;
+            android_poll_source* src;
+            if (ALooper_pollOnce(100, nullptr, &events, reinterpret_cast<void**>(&src)) >= 0 && src) src->process(app, src);
+        }
+        nx::log_flush();
+        _exit(0);  // NativeActivity is in :game; a new launch gets a fresh loader.
+    }
     // The heap (scudo) zero-fills every allocation and gives freed pages back at once by default: in the replay, a
     // memset under each allocation and madvise churn (docs/nvn/android-perf/PLAN.md, phase 2). NX_MALLOC_TUNE=0: as
     // the system set it.
@@ -970,8 +1092,9 @@ extern "C" void android_main(android_app* app) {
         nx::log("heap: zero-fill off (%d), page release delayed (%d)", zero, decay);
     }
     start_memory_guard();
-    gpu_turbo();
-    thermal_start();  // thermal.cpp: the thermal mode, and the clock caps on a rooted phone (NX_ROOT_CLOCKS=1)
+    // This experimental fork does not request root or change clock limits.
+    unsetenv("NX_ROOT_CLOCKS");
+    thermal_start();
     app->onAppCmd = on_cmd;
     app->onInputEvent = on_input;
     // NX_SHOW_WHEN_LOCKED=1 (unattended test runs, tools/wonder_phone_course.sh): shown over the lock screen and turning
