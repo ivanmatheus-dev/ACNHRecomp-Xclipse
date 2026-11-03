@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "nvn.h"
+#include "nvn_spirv_requirements.h"
 #include "vk_gen.h"
 
 namespace nx::nvn {
@@ -65,6 +66,7 @@ VkDevice vk_device();
 bool vk_depth_clip_control();
 // The core features the device was created with (all the GPU has): depthClamp, depthBiasClamp, depthBounds, ...
 const VkPhysicalDeviceFeatures& vk_features();
+const SpirvFeatureSupport& vk_spirv_features();
 bool gpu_require_subgroup32();  // compute pipelines pin the subgroup size to 32 (nvn_pipeline.cpp)
 bool gpu_is_integrated();  // the device in use is an integrated GPU (set when the device is made)
 VkPhysicalDevice vk_physical();

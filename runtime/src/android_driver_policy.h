@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cctype>
 #include <string>
+#include <utility>
 
 namespace nx::plat {
 
@@ -53,5 +54,19 @@ AndroidDriverResult select_android_driver(const AndroidDriverPlan& plan, Load lo
     if (plan.fallback_to_system)
         if (void* p = load(AndroidDriver::system)) return {p, AndroidDriver::system};
     return {nullptr, AndroidDriver::error};
+}
+
+// Fill absent settings only. An existing frame-rate choice must not gain an implicit 30 FPS cap.
+template <typename Missing, typename Set>
+void apply_xclipse_defaults(Missing missing, Set set) {
+    const bool no_rate = missing("video.frame_rate");
+    const std::pair<const char*, const char*> defaults[] = {
+        {"video.mode", "handheld"}, {"video.resolution", "720"}, {"video.upscaler", "fsr"},
+        {"video.frame_rate", "30"}, {"video.frame_gen", "off"}, {"video.shader_prepare", "1"},
+        {"video.async_shaders", "0"}, {"video.thermal", "balanced"},
+    };
+    for (const auto& [key, value] : defaults)
+        if (missing(key)) set(key, value);
+    if (no_rate && missing("video.frame_cap")) set("video.frame_cap", "30");
 }
 }  // namespace nx::plat

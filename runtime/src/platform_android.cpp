@@ -1048,6 +1048,7 @@ extern "C" void android_main(android_app* app) {
     g_root = !chosen.empty() && has_data(chosen) ? chosen : has_data(own) ? own : shared;
     // config.txt's NX_* lines become environment variables (the NVN layer reads its switches with getenv), without
     // overriding a variable already set. Android defaults: handheld (720p, the lighter GPU load).
+    bool handheld_off_override = false;
     {
         std::ifstream f(g_root + "/config.txt");
         std::string line;
@@ -1060,11 +1061,10 @@ extern "C" void android_main(android_app* app) {
             if (ours && eq != std::string::npos)
                 setenv(line.substr(0, eq).c_str(), line.substr(eq + 1).c_str(), 0);
         }
-        // NX_HANDHELD=0 in config.txt (the launcher's TV mode): docked, 1080p. svc_am.cpp tests only whether the variable
-        // exists, so "0" must remove it.
-        if (const char* h = getenv("NX_HANDHELD"); h && h[0] == '0')
-            unsetenv("NX_HANDHELD");
-        else
+        // Preserve an explicit NX_HANDHELD=0 across config_apply, including a config.ini handheld default.
+        if (const char* h = getenv("NX_HANDHELD"); h && h[0] == '0') {
+            handheld_off_override = true;
+        } else
             setenv("NX_HANDHELD", "1", 0);
     }
     if (!vulkan_get_instance_proc_addr()) {
@@ -1082,18 +1082,11 @@ extern "C" void android_main(android_app* app) {
     if (g_xclipse_960) {
         // Defaults are applied in memory only where the player's config has no value; later choices keep precedence.
         auto missing = [](const char* key) { return nx::config_get(key, "\x1f") == "\x1f"; };
-        bool no_rate = missing("video.frame_rate");
-        const std::pair<const char*, const char*> defaults[] = {
-            {"video.mode", "handheld"}, {"video.resolution", "720"}, {"video.upscaler", "fsr"},
-            {"video.frame_rate", "30"}, {"video.frame_gen", "off"}, {"video.shader_prepare", "1"},
-            {"video.async_shaders", "0"}, {"video.thermal", "balanced"},
-        };
-        for (const auto& [key, value] : defaults)
-            if (missing(key)) nx::config_set(key, value);
-        if (no_rate && missing("video.frame_cap")) nx::config_set("video.frame_cap", "30");
+        apply_xclipse_defaults(missing, [](const char* key, const char* value) { nx::config_set(key, value); });
     }
     // Apply config.ini and any defaults after device detection. Explicit NX_* settings still take precedence.
     nx::config_apply();
+    if (handheld_off_override) setenv("NX_HANDHELD", "0", 1);
     // The heap (scudo) zero-fills every allocation and gives freed pages back at once by default: in the replay, a
     // memset under each allocation and madvise churn (docs/nvn/android-perf/PLAN.md, phase 2). NX_MALLOC_TUNE=0: as
     // the system set it.

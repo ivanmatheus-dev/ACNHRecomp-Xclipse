@@ -33,5 +33,10 @@ com a mesma versão do jogo, save, horário e resolução, incluindo caches frio
 20 minutos; examine folhagens, sombras, transparências, personagem e diálogos. A meta de 30 FPS e os glitches continuam
 pendentes de verificação física.
 
+O runtime registra o hash, a etapa e o resultado Vulkan quando a criação de um módulo ou pipeline falha. A verificação
+prévia de capacidades SPIR-V cobre apenas um subconjunto (tipos numéricos, geometria, tesselação, interlock e operações
+de subgrupo); não substitui a validação completa do shader. `NX_SPIRV_REQUIREMENTS_TRACE=1` em `config.txt` registra
+também as capacidades que essa verificação ainda não cobre. Nenhuma capacidade é removida para contornar erros.
+
 O restante da documentação Android descreve o aplicativo original e pode mencionar downloads, padrões e opções de root
 que não se aplicam a este fork.

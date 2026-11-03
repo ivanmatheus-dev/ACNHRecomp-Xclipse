@@ -159,6 +159,17 @@ VkShaderModule module_of(const ShaderInfo* s, const uint8_t* kinds = nullptr, ui
         VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         ci.codeSize = code.size() * 4;
         ci.pCode = code.data();
+        const SpirvRequirements requirements = check_spirv_requirements(code.data(), code.size(), vk_spirv_features(),
+                                                                         stage_bit(s->stage));
+        if (!requirements.valid)
+            log("nvn/vk: shader %s (%s) has malformed SPIR-V", s->hash.c_str(), stage_name(s->stage));
+        for (uint32_t capability : requirements.unsupported)
+            log("nvn/vk: shader %s (%s) requires unsupported SPIR-V capability %u", s->hash.c_str(),
+                stage_name(s->stage), capability);
+        if (std::getenv("NX_SPIRV_REQUIREMENTS_TRACE"))
+            for (uint32_t capability : requirements.unchecked)
+                log("nvn/vk: shader %s (%s) has unchecked SPIR-V capability %u", s->hash.c_str(),
+                    stage_name(s->stage), capability);
         VkResult made = p_vkCreateShaderModule(vk_device(), &ci, nullptr, &m);
         if (made != VK_SUCCESS)
             log("nvn/vk: shader %s (%s) rejected, VkResult %d", s->hash.c_str(), stage_name(s->stage), int(made));
