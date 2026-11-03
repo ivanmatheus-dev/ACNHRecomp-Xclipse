@@ -113,11 +113,21 @@ cp $(find "$BUILD/_deps" -name "lib*hook*.so") "$OUT/lib/arm64-v8a/"
 TURNIP=private/third_party/mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so
 [ -f "$TURNIP" ] && cp "$TURNIP" "$OUT/lib/arm64-v8a/" || echo "(no Turnip: tools/build_turnip.sh; the phone's driver is used)"
 [ -f "$RADV" ] && "$STRIP" --strip-unneeded -o "$OUT/lib/arm64-v8a/libvulkan_radeon.so" "$RADV"
+mkdir -p "$OUT/assets/licenses/adrenotools"
+cp LICENSE "$OUT/assets/licenses/ACNHRecomp.txt"
+cp "$BUILD/_deps/adrenotools-src/LICENSE" "$OUT/assets/licenses/adrenotools/LICENSE"
+cp "$BUILD/_deps/adrenotools-src/lib/linkernsbypass/LICENSE" "$OUT/assets/licenses/adrenotools/linkernsbypass-LICENSE"
+if [ -f "$RADV" ]; then
+  mkdir -p "$OUT/assets/licenses/radv-xclipse"
+  cp private/third_party/radv-xclipse/LICENSE private/third_party/radv-xclipse/THIRD_PARTY_NOTICES.md \
+     private/third_party/radv-xclipse/android/NOTICE.txt "$OUT/assets/licenses/radv-xclipse/"
+  cp -R private/third_party/radv-xclipse/LICENSES "$OUT/assets/licenses/radv-xclipse/"
+fi
 # Use the checked-in icons; packaging must not rewrite tracked assets.
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"
 "$BT/aapt2" link -o "$OUT/base.apk" --manifest android/AndroidManifest.xml -I "$PLATFORM" "$OUT/res.zip"
 # Do not bundle optional downloaded mods in this build.
-(cd "$OUT" && zip -q -r base.apk lib classes.dex)
+(cd "$OUT" && zip -q -r base.apk lib classes.dex assets)
 "$BT/zipalign" -f -P 16 4 "$OUT/base.apk" "$OUT/aligned.apk"
 if [ "$UNSIGNED" = 1 ]; then
   echo "Unsigned APK: $OUT/aligned.apk"

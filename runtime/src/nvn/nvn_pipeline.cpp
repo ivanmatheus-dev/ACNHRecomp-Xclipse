@@ -159,7 +159,9 @@ VkShaderModule module_of(const ShaderInfo* s, const uint8_t* kinds = nullptr, ui
         VkShaderModuleCreateInfo ci{VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO};
         ci.codeSize = code.size() * 4;
         ci.pCode = code.data();
-        if (p_vkCreateShaderModule(vk_device(), &ci, nullptr, &m) != VK_SUCCESS) log("nvn/vk: shader %s rejected", s->hash.c_str());
+        VkResult made = p_vkCreateShaderModule(vk_device(), &ci, nullptr, &m);
+        if (made != VK_SUCCESS)
+            log("nvn/vk: shader %s (%s) rejected, VkResult %d", s->hash.c_str(), stage_name(s->stage), int(made));
         note_module_created(plat::monotonic_ns() - module_t0);
         static int logged = 0;
         if (is_patched && logged++ < 20) log("nvn/vk: shader %s: integer vertex inputs", s->hash.c_str());
@@ -484,7 +486,7 @@ VkPipeline compile(PipeBuild& b) {
     VkResult made = p_vkCreateGraphicsPipelines(vk_device(), b.cache, 1, &b.ci, nullptr, &p);
     note_pipeline_created(plat::monotonic_ns() - t0, t_worker);
     if (made != VK_SUCCESS) {
-        log("nvn/vk: pipeline for %s + %s failed", b.vs_hash.c_str(), b.fs_hash.c_str());
+        log("nvn/vk: graphics pipeline vertex %s + fragment %s failed, VkResult %d", b.vs_hash.c_str(), b.fs_hash.c_str(), int(made));
         p = VK_NULL_HANDLE;
     } else if (g_trace) {
         log("nvn/vk: pipeline: %s + %s", b.vs_hash.c_str(), b.fs_hash.c_str());
@@ -1343,8 +1345,9 @@ VkPipeline compute_pipeline(const ShaderInfo* cs, const ProgramLayout& layout) {
         sg.requiredSubgroupSize = 32;
         if (gpu_require_subgroup32()) ci.stage.pNext = &sg;
         ci.layout = layout.layout;
-        if (p_vkCreateComputePipelines(vk_device(), pipeline_cache(), 1, &ci, nullptr, &p) != VK_SUCCESS) {
-            log("nvn/vk: compute pipeline for %s failed", cs->hash.c_str());
+        VkResult made = p_vkCreateComputePipelines(vk_device(), pipeline_cache(), 1, &ci, nullptr, &p);
+        if (made != VK_SUCCESS) {
+            log("nvn/vk: compute pipeline shader %s failed, VkResult %d", cs->hash.c_str(), int(made));
             p = VK_NULL_HANDLE;
         }
     }

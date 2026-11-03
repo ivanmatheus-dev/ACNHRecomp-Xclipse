@@ -66,6 +66,7 @@ namespace nx::plat {
 std::string g_native_lib_dir;  // ApplicationInfo.nativeLibraryDir: Turnip and libadrenotools' hooks
 std::string g_cache_dir;       // the app's own internal folder
 std::string g_vulkan_error;
+bool g_xclipse_960 = false;
 
 namespace {
 android_app* g_app = nullptr;
@@ -638,11 +639,8 @@ void* load_vulkan() {
     void* system_lib = dlopen("libvulkan.so", RTLD_NOW | RTLD_LOCAL);
     void* system_gipa = system_lib ? dlsym(system_lib, "vkGetInstanceProcAddr") : nullptr;
     VulkanProbe system = probe_vulkan(system_gipa);
-    if (supported_xclipse(system.name)) {
+    if ((g_xclipse_960 = supported_xclipse(system.name))) {
         setenv("NX_XCLIPSE_DEVICE", "1", 1);
-        // Preserve an explicit setting. Without one, wait for a pipeline instead of skipping its draw.
-        if (!std::getenv("NX_ASYNC_PIPELINES") && nx::config_get("video.async_shaders").empty())
-            setenv("NX_ASYNC_PIPELINES", "0", 0);
     }
     auto plan = android_driver_plan(pick, std::strcmp(vk, "adreno") == 0, system.name);
     nx::log("vulkan: requested %s, system GPU '%s'", pick.c_str(), system.name.c_str());
@@ -1069,9 +1067,6 @@ extern "C" void android_main(android_app* app) {
         else
             setenv("NX_HANDHELD", "1", 0);
     }
-    // config.ini (the settings screen's file, as on the other platforms): NX_* defaults for what config.txt left unset.
-    // Without it the game language, frame generation and the frame rate chosen there were ignored on Android.
-    nx::config_apply();
     if (!vulkan_get_instance_proc_addr()) {
         nx::log("vulkan: startup failed: %s", g_vulkan_error.c_str());
         open_home(app, "Vulkan: " + g_vulkan_error);
@@ -1084,6 +1079,21 @@ extern "C" void android_main(android_app* app) {
         nx::log_flush();
         _exit(0);  // NativeActivity is in :game; a new launch gets a fresh loader.
     }
+    if (g_xclipse_960) {
+        // Defaults are applied in memory only where the player's config has no value; later choices keep precedence.
+        auto missing = [](const char* key) { return nx::config_get(key, "\x1f") == "\x1f"; };
+        bool no_rate = missing("video.frame_rate");
+        const std::pair<const char*, const char*> defaults[] = {
+            {"video.mode", "handheld"}, {"video.resolution", "720"}, {"video.upscaler", "fsr"},
+            {"video.frame_rate", "30"}, {"video.frame_gen", "off"}, {"video.shader_prepare", "1"},
+            {"video.async_shaders", "0"}, {"video.thermal", "balanced"},
+        };
+        for (const auto& [key, value] : defaults)
+            if (missing(key)) nx::config_set(key, value);
+        if (no_rate && missing("video.frame_cap")) nx::config_set("video.frame_cap", "30");
+    }
+    // Apply config.ini and any defaults after device detection. Explicit NX_* settings still take precedence.
+    nx::config_apply();
     // The heap (scudo) zero-fills every allocation and gives freed pages back at once by default: in the replay, a
     // memset under each allocation and madvise churn (docs/nvn/android-perf/PLAN.md, phase 2). NX_MALLOC_TUNE=0: as
     // the system set it.
