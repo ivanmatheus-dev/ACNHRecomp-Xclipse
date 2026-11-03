@@ -17,7 +17,7 @@ PY=$(ls /opt/homebrew/bin/python3.1[0-9] 2>/dev/null | sort -V | tail -1)
 export PATH=/opt/homebrew/opt/bison/bin:/opt/homebrew/opt/flex/bin:$PWD/private/venv-mesa/bin:$PATH
 private/venv-mesa/bin/pip install -q meson mako pyyaml packaging
 if [ "$(uname)" = Darwin ]; then HOST=darwin-x86_64; DEF_SDK=$HOME/Library/Android/sdk; else HOST=linux-x86_64; DEF_SDK=$HOME/Android/Sdk; fi
-NDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$DEF_SDK}}/ndk/28.2.13676358
+NDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$DEF_SDK}}/ndk/29.0.14206865
 TC=$NDK/toolchains/llvm/prebuilt/$HOST/bin
 CROSS=$PWD/private/android_cross.ini
 cat > "$CROSS" <<EOF2

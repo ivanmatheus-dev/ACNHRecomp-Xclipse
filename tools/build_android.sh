@@ -8,7 +8,7 @@
 #   --no-game: the app only, without the game set up here (what a release carries)
 #   the Vulkan headers: private/third_party/Vulkan-Headers-1.4.357 (tools/setup_acnh.sh; the NDK's are older than
 #   what the runtime calls)
-#   needs: Android SDK with ndk;28.2.13676358, build-tools;35.0.0, platforms;android-35 (ANDROID_SDK_ROOT, default
+#   needs: Android SDK with ndk;29.0.14206865, build-tools;35.0.0, platforms;android-35 (ANDROID_SDK_ROOT, default
 #   ~/Library/Android/sdk on macOS, ~/Android/Sdk on Linux) and a JDK 17 (JAVA_HOME; Homebrew's openjdk@17 found by
 #   itself)
 cd "$(dirname "$0")/.." || exit 1
@@ -17,7 +17,7 @@ GAME=acnh
 # macOS: Android Studio's SDK folder; Linux: ~/Android/Sdk.
 if [ "$(uname)" = Darwin ]; then HOST=darwin-x86_64; DEF_SDK=$HOME/Library/Android/sdk; else HOST=linux-x86_64; DEF_SDK=$HOME/Android/Sdk; fi
 SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$DEF_SDK}}
-NDK=$SDK/ndk/28.2.13676358
+NDK=$SDK/ndk/29.0.14206865
 BT=$SDK/build-tools/35.0.0
 PLATFORM=$SDK/platforms/android-35/android.jar
 if [ -z "${JAVA_HOME:-}" ] && [ -d /opt/homebrew/opt/openjdk@17 ]; then export JAVA_HOME=/opt/homebrew/opt/openjdk@17; fi
@@ -65,7 +65,7 @@ mkdir -p "$(dirname "$OUT")"
 echo "== configure ($BUILD)"
 cmake -S . -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_STL=c++_shared \
-  -DANDROID_PLATFORM=android-29 -DNX_GAME=$GAME -DNX_GEN_DIR="$GEN" -DNX_LAUNCHER=OFF \
+  -DANDROID_PLATFORM=android-34 -DNX_GAME=$GAME -DNX_GEN_DIR="$GEN" -DNX_LAUNCHER=OFF \
   -DNX_VULKAN_SDK="$PWD/private/third_party/Vulkan-Headers-1.4.357" > "$OUT.cmake.log" 2>&1 ||
   { tail -20 "$OUT.cmake.log"; exit 1; }
 
@@ -89,7 +89,7 @@ cp "$NDK/toolchains/llvm/prebuilt/$HOST/sysroot/usr/lib/aarch64-linux-android/li
 mkdir -p "$OUT/classes"
 javac -nowarn -Xlint:-options -source 8 -target 8 -bootclasspath "$PLATFORM" -classpath "$BT/core-lambda-stubs.jar" \
   -d "$OUT/classes" $(find android/java -name "*.java")
-"$BT/d8" --release --min-api 29 --lib "$PLATFORM" --output "$OUT" $(find "$OUT/classes" -name "*.class")
+"$BT/d8" --release --min-api 34 --lib "$PLATFORM" --output "$OUT" $(find "$OUT/classes" -name "*.class")
 # libadrenotools' hook libraries, and Turnip when it was built (tools/build_turnip.sh): the Adreno driver it loads.
 cp $(find "$BUILD/_deps" -name "lib*hook*.so") "$OUT/lib/arm64-v8a/"
 TURNIP=private/third_party/mesa/build-android/src/freedreno/vulkan/libvulkan_freedreno.so
@@ -97,10 +97,8 @@ TURNIP=private/third_party/mesa/build-android/src/freedreno/vulkan/libvulkan_fre
 python3 tools/make_android_icon.py 2>/dev/null || true  # needs Pillow; the PNGs are kept in android/res otherwise
 "$BT/aapt2" compile --dir android/res -o "$OUT/res.zip"
 "$BT/aapt2" link -o "$OUT/base.apk" --manifest android/AndroidManifest.xml -I "$PLATFORM" "$OUT/res.zip"
-# The pt-BR translation and the SpeedFix files as assets, which the app copies into the game folder (mod_fetch.cpp).
-rm -rf "${OUT:?}/assets"
-tools/bundle_mods.sh "$OUT/assets"
-(cd "$OUT" && zip -q -r base.apk lib classes.dex && zip -q -r -0 base.apk assets)
+# Do not bundle optional downloaded mods in this build.
+(cd "$OUT" && zip -q -r base.apk lib classes.dex)
 "$BT/zipalign" -f -P 16 4 "$OUT/base.apk" "$OUT/aligned.apk"
 KEY=private/android-debug.keystore
 [ -f "$KEY" ] || keytool -genkeypair -keystore "$KEY" -storepass android -keypass android -alias debug \

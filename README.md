@@ -1,3 +1,5 @@
+> **Fork Xclipse em desenvolvimento:** a integração RADV e o APK experimental ainda não estão concluídos nem validados. O aplicativo planejado usa o pacote `io.github.ivanmtdev.acnhrecomp` para permitir instalação ao lado do original. Use uma pasta preparada a partir da sua própria cópia e faça backup dos saves antes de testar.
+
 # ACNHRecomp
 
 **A native PC port of Animal Crossing: New Horizons, made by static recompilation.**

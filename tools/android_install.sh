@@ -23,7 +23,7 @@ SDK=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-$DEF_SDK}}
 say "checks"
 [ -f private/acnh/analysis/main.bin ] && [ -d private/acnh/gen/main ] ||
   fail "the game is not set up on this computer yet: python3 tools/setup_acnh.py --game <your game folder>"
-for p in "ndk/28.2.13676358" "build-tools/35.0.0" "platforms/android-35"; do
+for p in "ndk/29.0.14206865" "build-tools/35.0.0" "platforms/android-35"; do
   [ -d "$SDK/$p" ] || fail "Android SDK: $p missing in $SDK (sdkmanager \"${p//\//;}\", or Android Studio's SDK Manager)"
 done
 command -v adb >/dev/null || export PATH=$SDK/platform-tools:$PATH
@@ -61,8 +61,8 @@ if [ $SAVE = 1 ]; then
   say "your save"
   [ -d private/acnh/user/device_save ] || fail "no save in private/acnh/user/device_save"
   card=$(adb shell 'for d in /storage/*; do case $d in */emulated|*/self) ;; *) echo $d; break;; esac; done' | tr -d '\r')
-  D=${card:-/sdcard}/Android/data/io.github.acnhrecomp/files
-  adb shell am force-stop io.github.acnhrecomp
+  D=${card:-/sdcard}/Android/data/io.github.ivanmtdev.acnhrecomp/files
+  adb shell am force-stop io.github.ivanmtdev.acnhrecomp
   if adb shell "[ -d $D/user/device_save ]"; then
     stamp=$(date +%Y%m%d-%H%M%S)
     adb shell "mv $D/user/device_save $D/user/device_save.before-$stamp"

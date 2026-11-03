@@ -782,7 +782,7 @@ extern "C" JNIEXPORT jlong JNICALL Java_io_github_belmantegu_wonderrecomp_GameAc
 
 // The home screen (android/java/.../Home.java) checks the game folder the player picked with this before starting
 // the game: "" when lib<game>_game.so loads from it, else why not.
-extern "C" JNIEXPORT jstring JNICALL Java_io_github_acnhrecomp_Home_nativeLoadGame(JNIEnv* env, jclass, jstring folder,
+extern "C" JNIEXPORT jstring JNICALL Java_io_github_ivanmtdev_acnhrecomp_Home_nativeLoadGame(JNIEnv* env, jclass, jstring folder,
                                                                                   jstring files) {
     auto str = [&](jstring js) {
         std::string out;
@@ -801,7 +801,7 @@ static void open_home(android_app* app, const std::string& why) {
     env->CallObjectMethod(intent, env->GetMethodID(intentc, "setClassName",
                                                    "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"),
                           env->NewStringUTF(nx::game::kInfo.android_package),
-                          env->NewStringUTF("io.github.acnhrecomp.Home"));
+                          env->NewStringUTF("io.github.ivanmtdev.acnhrecomp.Home"));
     env->CallObjectMethod(intent, env->GetMethodID(intentc, "putExtra",
                                                    "(Ljava/lang/String;Ljava/lang/String;)Landroid/content/Intent;"),
                           env->NewStringUTF("error"), env->NewStringUTF(why.c_str()));

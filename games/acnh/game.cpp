@@ -13,7 +13,7 @@
 namespace nx {
 
 const game::Info game::kInfo = {"acnh", "Animal Crossing: New Horizons", 0x01006F8002326000ull,
-                                "io.github.acnhrecomp", "private/acnh",
+                                "io.github.ivanmtdev.acnhrecomp", "private/acnh",
                                 0 /* main.npdm: no system resource */,
                                 // guiTouchManager::update (main+31c3b50) moves every touch 15 up: the UI then hits
                                 // what the mouse points at.

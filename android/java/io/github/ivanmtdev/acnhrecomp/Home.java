@@ -3,7 +3,7 @@
 // (tools/android_install.sh: the recompiled code as libacnh_game.so, romfs.pak, spirv.pak, ...; docs/ANDROID.md).
 // The folder chosen is kept in <files>/data_root.txt, which platform_android.cpp reads; next time the game starts
 // right away. The launcher icon's shortcut "Change game folder" (res/xml/shortcuts.xml) asks again.
-package io.github.acnhrecomp;
+package io.github.ivanmtdev.acnhrecomp;
 
 import android.app.Activity;
 import android.content.Intent;
