@@ -20,7 +20,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends glslang-tools bison flex zip
           python3 -m venv "$RUNNER_TEMP/mesa-venv"
-          "$RUNNER_TEMP/mesa-venv/bin/pip" install meson==1.6.1 ninja==1.13.0 mako==1.3.10 packaging==25.0
+          "$RUNNER_TEMP/mesa-venv/bin/pip" install meson==1.6.1 ninja==1.13.0 mako==1.3.10 packaging==25.0 PyYAML==6.0.2
           echo "$RUNNER_TEMP/mesa-venv/bin" >> "$GITHUB_PATH"
           set +o pipefail
           yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
