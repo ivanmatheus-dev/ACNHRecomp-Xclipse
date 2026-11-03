@@ -87,6 +87,7 @@ jobs:
           /tmp/cache-identity
           c++ -std=c++20 -Iruntime/src/nvn tests/spirv_requirements_test.cpp -o /tmp/spirv-requirements
           /tmp/spirv-requirements
+          python3 tests/adrenotools_patch_test.py
       - name: Test GPU selection and texture layout
         run: |
           c++ -std=c++20 -DNX_GPU_PICK_STANDALONE -Iruntime/src/nvn tests/gpu_pick_test.cpp runtime/src/nvn/nvn_gpu_pick.cpp -o /tmp/gpu-pick
