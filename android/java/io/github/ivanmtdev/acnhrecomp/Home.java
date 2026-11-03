@@ -150,8 +150,11 @@ public class Home extends Activity {
             }
         } catch (Exception ignored) { }
         String saved = readSaved();
-        if (!saved.isEmpty() && hasPackage(new File(saved)) && canRead(saved))
+        if (!saved.isEmpty() && hasPackage(new File(saved)) && canRead(saved)) {
             box.addView(button(t("Start saved game", "Iniciar jogo salvo"), Color.rgb(90, 170, 90), v -> check(saved, false)));
+            box.addView(button(t("Clear pipeline cache on next launch", "Limpar cache de pipelines na próxima execução"),
+                    Color.rgb(120, 110, 160), v -> requestCacheClear(saved)));
+        }
         for (final String f : found())
             if (!f.equals(saved))
             box.addView(button(t("Use the game found", "Usar o jogo encontrado") + " ("
@@ -191,6 +194,16 @@ public class Home extends Activity {
                         say(t("Could not save the driver selection.", "Não foi possível salvar a seleção de driver."), true);
                     }
                 }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void requestCacheClear(String folder) {
+        try (FileOutputStream out = new FileOutputStream(new File(getFilesDir(), "clear_pipeline_cache"))) {
+            out.write(folder.getBytes(StandardCharsets.UTF_8));
+            say(t("Close the game first. The pipeline cache will be cleared on the next launch.",
+                    "Feche o jogo primeiro. O cache de pipelines será limpo na próxima execução."), false);
+        } catch (Exception e) {
+            say(t("Could not schedule cache cleanup.", "Não foi possível programar a limpeza do cache."), true);
+        }
     }
 
     private void say(String text, boolean error) {

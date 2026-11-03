@@ -350,6 +350,11 @@ if(ANDROID)
     FetchContent_Declare(adrenotools GIT_REPOSITORY https://github.com/bylaws/libadrenotools.git
                          GIT_TAG 8fae8ce254dfc1344527e05301e43f37dea2df80 GIT_SUBMODULES_RECURSE TRUE)
     FetchContent_MakeAvailable(adrenotools)
+    execute_process(COMMAND "${CMAKE_COMMAND}" "-DADRENO_SOURCE=${adrenotools_SOURCE_DIR}"
+                    -P "${CMAKE_SOURCE_DIR}/tools/patch_adrenotools.cmake" RESULT_VARIABLE NX_ADRENO_PATCH_RESULT)
+    if(NOT NX_ADRENO_PATCH_RESULT EQUAL 0)
+        message(FATAL_ERROR "Could not apply the Xclipse libadrenotools namespace patch")
+    endif()
     target_link_libraries(${NX_GAME} PRIVATE adrenotools)
     add_dependencies(${NX_GAME} hook_impl main_hook file_redirect_hook gsl_alloc_hook)
     target_compile_options(${NX_GAME} PRIVATE -fvisibility=hidden -fno-semantic-interposition -march=armv8.2-a+crypto)

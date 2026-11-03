@@ -36,6 +36,7 @@
 #include <deque>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -51,6 +52,7 @@
 #include "platform.h"
 #include "config.h"
 #include "android_driver_policy.h"
+#include "android_pipeline_cache.h"
 #include "platform_android.h"
 
 #ifndef MAP_FIXED_NOREPLACE
@@ -1046,6 +1048,31 @@ extern "C" void android_main(android_app* app) {
     }
     // The picked folder wins over the app's own one; else the own one (adb push), else Internal storage/<title>.
     g_root = !chosen.empty() && has_data(chosen) ? chosen : has_data(own) ? own : shared;
+    // A request from Home is consumed before any pipeline cache is opened in this game process.
+    const std::string clear_marker = g_cache_dir + "/clear_pipeline_cache";
+    std::ifstream clear_request(clear_marker);
+    const std::string clear_root((std::istreambuf_iterator<char>(clear_request)), std::istreambuf_iterator<char>());
+    if (!clear_root.empty() && clear_root == g_root && has_data(g_root)) {
+        std::error_code ec;
+        bool ok = true;
+        size_t removed = 0;
+        std::filesystem::directory_iterator it(std::filesystem::u8path(g_root), ec), end;
+        if (ec) ok = false;
+        for (; !ec && it != end; it.increment(ec)) {
+            const auto& entry = *it;
+            if (!android_pipeline_cache_file(entry.path().filename().string())) continue;
+            std::error_code item_error;
+            const auto status = entry.symlink_status(item_error);
+            if (item_error) { ok = false; continue; }
+            if (!std::filesystem::is_regular_file(status)) continue;
+            if (std::filesystem::remove(entry.path(), item_error)) ++removed;
+            if (item_error) ok = false;
+        }
+        if (ec) ok = false;
+        if (ok && unlink(clear_marker.c_str()) != 0) ok = false;
+        nx::log("vulkan: pipeline cache cleanup %s (%zu files)", ok ? "completed" : "incomplete", removed);
+        driver_notice(ok ? "Cache de pipelines limpo." : "Não foi possível limpar todo o cache de pipelines.");
+    }
     // config.txt's NX_* lines become environment variables (the NVN layer reads its switches with getenv), without
     // overriding a variable already set. Android defaults: handheld (720p, the lighter GPU load).
     bool handheld_off_override = false;

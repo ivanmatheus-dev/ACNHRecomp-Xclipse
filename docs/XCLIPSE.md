@@ -22,6 +22,8 @@ driver do Android. `turnip` exige Adreno. `radv-xclipse` exige Xclipse 960 detec
 inicial falhe, sem trocar silenciosamente. O driver é carregado uma vez pelo processo do jogo: encerre a execução antes
 de mudá-lo e inicie novamente. O diagnóstico da última execução aparece na tela inicial; ele mostra GPU, driver efetivo,
 versão Vulkan e, quando RADV é carregado, sua revisão. O log também registra a causa da falha inicial.
+Com o jogo encerrado, a tela inicial pode programar a limpeza do cache de pipelines da pasta salva para a próxima
+execução; os saves e os arquivos de shaders não são apagados.
 
 Na ausência de escolhas anteriores, o perfil Xclipse usa 30 FPS, 720p, FSR 1, geração de quadros desligada, preparação
 de pipelines e modo térmico equilibrado. A compilação em segundo plano não pula desenhos por padrão; o runtime espera
@@ -37,6 +39,10 @@ O runtime registra o hash, a etapa e o resultado Vulkan quando a criação de um
 prévia de capacidades SPIR-V cobre apenas um subconjunto (tipos numéricos, geometria, tesselação, interlock e operações
 de subgrupo); não substitui a validação completa do shader. `NX_SPIRV_REQUIREMENTS_TRACE=1` em `config.txt` registra
 também as capacidades que essa verificação ainda não cobre. Nenhuma capacidade é removida para contornar erros.
+
+O RADV compilado depende da biblioteca privada do sistema Android `libhardware.so`. O hook de carregamento tenta ligar
+apenas essa biblioteca ao namespace do driver, sem ativar mapeamento KGSL; a disponibilidade e o carregamento real
+ainda precisam ser confirmados no aparelho. Se o carregamento inicial falhar, a escolha explícita mostra o erro.
 
 O restante da documentação Android descreve o aplicativo original e pode mencionar downloads, padrões e opções de root
 que não se aplicam a este fork.
