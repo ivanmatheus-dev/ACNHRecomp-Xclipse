@@ -3,9 +3,10 @@
 // (tools/android_install.sh: the recompiled code as libacnh_game.so, romfs.pak, spirv.pak, ...; docs/ANDROID.md).
 // The folder chosen is kept in <files>/data_root.txt, which platform_android.cpp reads; next time the game starts
 // right away. The launcher icon's shortcut "Change game folder" (res/xml/shortcuts.xml) asks again.
-package io.github.acnhrecomp;
+package io.github.ivanmtdev.acnhrecomp;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.Intent;
 import android.graphics.Color;
 import android.graphics.Typeface;
@@ -54,14 +55,7 @@ public class Home extends Activity {
     protected void onCreate(Bundle state) {
         super.onCreate(state);
         String error = getIntent().getStringExtra("error");
-        boolean ask = getIntent().getBooleanExtra("pick", false) || error != null;
-        String saved = ask ? "" : readSaved();
-        if (!saved.isEmpty() && hasPackage(new File(saved)) && canRead(saved)) {
-            check(saved, true);  // the folder of last time: straight into the game
-            return;
-        }
         show(error != null ? explain(error) : null);
-        if (!ask && found().isEmpty()) pick();
     }
 
     @Override
@@ -119,7 +113,7 @@ public class Home extends Activity {
         scroll.addView(outer);
 
         TextView title = new TextView(this);
-        title.setText("ACNH Recomp");
+        title.setText("ACNHRecomp Xclipse");
         title.setTextSize(26);
         title.setTypeface(Typeface.DEFAULT_BOLD);
         title.setTextColor(Color.rgb(92, 70, 50));
@@ -140,12 +134,76 @@ public class Home extends Activity {
         if (note != null) message.setText(note);
         box.addView(message);
 
+        Button driver = button("", Color.rgb(120, 110, 160), v -> chooseDriver());
+        driver.setText(driverLabel());
+        driver.setTag("driver");
+        box.addView(driver);
+        try {
+            String diagnostic = new String(Files.readAllBytes(new File(getFilesDir(), "gpu_diagnostic.txt").toPath()),
+                    StandardCharsets.UTF_8).trim();
+            if (!diagnostic.isEmpty()) {
+                TextView details = new TextView(this);
+                details.setText(t("Last GPU diagnostic:\n", "Diagnóstico da GPU na última execução:\n") + diagnostic);
+                details.setTextColor(Color.rgb(92, 70, 50));
+                details.setPadding(0, dp(8), 0, dp(8));
+                box.addView(details);
+            }
+        } catch (Exception ignored) { }
+        String saved = readSaved();
+        if (!saved.isEmpty() && hasPackage(new File(saved)) && canRead(saved)) {
+            box.addView(button(t("Start saved game", "Iniciar jogo salvo"), Color.rgb(90, 170, 90), v -> check(saved, false)));
+            box.addView(button(t("Clear pipeline cache on next launch", "Limpar cache de pipelines na próxima execução"),
+                    Color.rgb(120, 110, 160), v -> requestCacheClear(saved)));
+        }
         for (final String f : found())
+            if (!f.equals(saved))
             box.addView(button(t("Use the game found", "Usar o jogo encontrado") + " ("
                             + (f.startsWith("/storage/emulated") ? t("phone", "celular") : t("memory card", "cartão de memória"))
                             + ")", Color.rgb(90, 170, 90), v -> check(f, false)));
         box.addView(button(t("Choose the game folder", "Escolher a pasta do jogo"), Color.rgb(70, 140, 210), v -> pick()));
         setContentView(scroll);
+    }
+
+    private String selectedDriver() {
+        try {
+            return new String(Files.readAllBytes(new File(getFilesDir(), "gpu_driver.txt").toPath()),
+                    StandardCharsets.UTF_8).trim();
+        } catch (Exception e) {
+            return "";  // config.ini or auto
+        }
+    }
+
+    private String driverLabel() {
+        String value = selectedDriver();
+        if (value.isEmpty()) value = t("configuration / auto", "configuração / automático");
+        return t("GPU driver: ", "Driver de GPU: ") + value;
+    }
+
+    private void chooseDriver() {
+        final String[] values = {"", "auto", "system", "turnip", "radv-xclipse"};
+        final String[] labels = {"config.ini", t("Automatic", "Automático"), t("System", "Sistema"), "Turnip", "RADV Xclipse"};
+        new AlertDialog.Builder(this).setTitle(t("GPU driver", "Driver de GPU"))
+                .setItems(labels, (dialog, which) -> {
+                    try (FileOutputStream out = new FileOutputStream(new File(getFilesDir(), "gpu_driver.txt"))) {
+                        out.write((values[which] + "\n").getBytes(StandardCharsets.UTF_8));
+                        Button b = box.findViewWithTag("driver");
+                        if (b != null) b.setText(driverLabel());
+                        say(t("The driver takes effect on the next game launch.",
+                                "O driver será aplicado ao iniciar o jogo novamente."), false);
+                    } catch (Exception e) {
+                        say(t("Could not save the driver selection.", "Não foi possível salvar a seleção de driver."), true);
+                    }
+                }).setNegativeButton(android.R.string.cancel, null).show();
+    }
+
+    private void requestCacheClear(String folder) {
+        try (FileOutputStream out = new FileOutputStream(new File(getFilesDir(), "clear_pipeline_cache"))) {
+            out.write(folder.getBytes(StandardCharsets.UTF_8));
+            say(t("Close the game first. The pipeline cache will be cleared on the next launch.",
+                    "Feche o jogo primeiro. O cache de pipelines será limpo na próxima execução."), false);
+        } catch (Exception e) {
+            say(t("Could not schedule cache cleanup.", "Não foi possível programar a limpeza do cache."), true);
+        }
     }
 
     private void say(String text, boolean error) {

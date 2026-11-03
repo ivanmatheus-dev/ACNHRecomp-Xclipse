@@ -8,7 +8,7 @@
 cd "$(dirname "$0")/.." || exit 1
 set -e
 GAME=acnh
-PKG=io.github.acnhrecomp
+PKG=io.github.ivanmtdev.acnhrecomp
 SRC=private/$GAME
 PART=1073741824
 card=$(adb shell 'for d in /storage/*; do case $d in */emulated|*/self) ;; *) echo $d; break;; esac; done' | tr -d '\r')

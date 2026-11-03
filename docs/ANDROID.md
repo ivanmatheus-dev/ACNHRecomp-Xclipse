@@ -29,8 +29,8 @@ The rest of this page builds the app and the game folder from this repository in
 - A computer with the game already set up by `tools/setup_acnh.py` (README, "Installation"): macOS (Apple
   Silicon) or Linux x86-64. Its `private/acnh` folder (generated code, `spirv`, `fonts`, the RomFS link) is what the
   phone build uses.
-- The Android SDK with `ndk;28.2.13676358`, `build-tools;35.0.0` and `platforms;android-35` (Android Studio's SDK
-  Manager, or `sdkmanager "ndk;28.2.13676358" "build-tools;35.0.0" "platforms;android-35"`), and a JDK 17
+- The Android SDK with `ndk;29.0.14206865`, `build-tools;35.0.0` and `platforms;android-35` (Android Studio's SDK
+  Manager, or `sdkmanager "ndk;29.0.14206865" "build-tools;35.0.0" "platforms;android-35"`), and a JDK 17
   (`brew install openjdk@17` on macOS). The SDK is looked for in `ANDROID_SDK_ROOT`, else `~/Library/Android/sdk`
   (macOS) or `~/Android/Sdk` (Linux).
 - Turnip: `tools/build_turnip.sh` builds it from Mesa's sources (needs Homebrew's `bison`, `flex` and Python 3.10+),
@@ -50,7 +50,7 @@ tools/android_install.sh --save      # --save: also your computer's save (the ph
 
 It builds the app and `libacnh_game.so` (the first build compiles the whole game: 30-60 min), installs the app and
 copies the game folder to the phone: the app's folder on the memory card when there is one
-(`Android/data/io.github.acnhrecomp/files`), else the phone's own storage. The copy can be interrupted and run
+(`Android/data/io.github.ivanmtdev.acnhrecomp/files`), else the phone's own storage. The copy can be interrupted and run
 again: it resumes, and later runs re-send only what changed (the phone's own settings are kept).
 
 Or step by step:
@@ -85,7 +85,7 @@ The pt-BR translation: install it on the computer as for the desktop version (th
 To continue the island you play on the computer, copy its save to the phone (with the game closed on both):
 
 ```sh
-D=/storage/<card>/Android/data/io.github.acnhrecomp/files   # adb shell ls /storage to find <card>
+D=/storage/<card>/Android/data/io.github.ivanmtdev.acnhrecomp/files   # adb shell ls /storage to find <card>
 adb push private/acnh/user/device_save "$D/user/"
 adb push private/acnh/users.txt "$D/"
 ```

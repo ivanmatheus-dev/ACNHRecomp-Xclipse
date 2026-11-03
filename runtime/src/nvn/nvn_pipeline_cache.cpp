@@ -1,7 +1,7 @@
-// A VkPipelineCache kept on disk (<data root>/pipelines_<vendor>_<device>.bin), and the cost of what the replay
+// A VkPipelineCache kept on disk, and the cost of what the replay
 // creates on the fly. Pipelines are compiled the first time a draw needs them, inside the replay: the course's
-// stutters when new objects come in (16-42 ms replays on the RTX 3050). The driver checks the cache header itself
-// (vendor, device, driver build): a stale file is ignored. Saved every 600 presents when it grew.
+// stutters when new objects come in (16-42 ms replays on the RTX 3050). A stale or invalid header is ignored.
+// Saved every 600 presents when it grew.
 // NX_PIPELINE_CACHE=0: no cache (bisecting, or to measure first-run stutter).
 #include <cstdio>
 #include <cstdlib>
@@ -13,6 +13,7 @@
 #include <unordered_set>
 
 #include "nvn_pipeline.h"
+#include "nvn_cache_identity.h"
 #include "nvn_vk.h"
 #include "platform.h"
 
@@ -41,22 +42,36 @@ VkPipelineCache pipeline_cache() {
     if (const char* e = std::getenv("NX_PIPELINE_CACHE"); e && e[0] == '0') return VK_NULL_HANDLE;
     VkPhysicalDeviceProperties p{};
     p_vkGetPhysicalDeviceProperties(vk_physical(), &p);
-    char name[64];
-    std::snprintf(name, sizeof name, "/pipelines_%04x_%04x.bin", p.vendorID, p.deviceID);
+    // Keep driver builds and runtime revisions apart, including the associated prewarm keys.
+    char uuid[33];
+    for (size_t i = 0; i < 16; ++i) std::snprintf(uuid + 2 * i, 3, "%02x", p.pipelineCacheUUID[i]);
+    char name[160];
+    std::snprintf(name, sizeof name, "/pipelines_%04x_%04x_%08x_%s_%016llx.bin", p.vendorID, p.deviceID,
+                  p.driverVersion, uuid, static_cast<unsigned long long>(cache_identity_hash(NX_VERSION_STRING)));
     g_path = plat::data_root() + name;
     std::vector<uint8_t> data;
     if (FILE* f = plat::fopen_utf8(g_path, "rb")) {
         plat::fseek64(f, 0, SEEK_END);
         int64_t n = plat::ftell64(f);
         plat::fseek64(f, 0, SEEK_SET);
-        if (n > 0) data.resize(size_t(n)), data.resize(std::fread(data.data(), 1, data.size(), f));
+        // A corrupt or hostile cache must not cause an unbounded allocation.
+        constexpr int64_t kMaxCacheSize = 256ll * 1024 * 1024;
+        if (n > 0 && n <= kMaxCacheSize) {
+            data.resize(size_t(n));
+            if (std::fread(data.data(), 1, data.size(), f) != data.size()) data.clear();
+        }
         std::fclose(f);
+    }
+    if (!data.empty() && !pipeline_cache_compatible(data.data(), data.size(), p.vendorID, p.deviceID, p.pipelineCacheUUID)) {
+        log("nvn/vk: incompatible pipeline cache ignored: %s", g_path.c_str());
+        data.clear();
     }
     VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO};
     ci.initialDataSize = data.size();
     ci.pInitialData = data.empty() ? nullptr : data.data();
     if (p_vkCreatePipelineCache(vk_device(), &ci, nullptr, &g_cache) != VK_SUCCESS) {
         ci.initialDataSize = 0, ci.pInitialData = nullptr;  // a cache the driver refuses: start empty
+        data.clear();
         p_vkCreatePipelineCache(vk_device(), &ci, nullptr, &g_cache);
     }
     g_saved_size = data.size();

@@ -70,6 +70,7 @@ bool g_display_timing = false;      // VK_GOOGLE_display_timing enabled
 bool g_integrated = false;
 bool g_require_sg32 = false;  // compute pipelines are made with a required subgroup size of 32 (Maxwell's warp)  // the chosen GPU is an integrated one (unified memory, the GPU is the long side)
 VkPhysicalDeviceFeatures g_features{};  // the core features enabled (vk_features())
+SpirvFeatureSupport g_spirv_features{};
 VkDescriptorPool g_descriptors = VK_NULL_HANDLE;
 
 // The per-submit upload buffer (nvn_vk.h): one host-visible buffer, bump-allocated, reset at every submit.
@@ -307,9 +308,14 @@ bool init() {
     {   // The translated shaders assume Maxwell's warp of 32 (TRANSLATOR.md). Intel runs subgroups of 8, 16 or 32 as its
         // compiler chooses; where the size can be pinned (core 1.3 subgroup size control), compute pipelines pin 32.
         VkPhysicalDeviceSubgroupSizeControlProperties sgc{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_SIZE_CONTROL_PROPERTIES};
+        VkPhysicalDeviceSubgroupProperties subgroup{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_SUBGROUP_PROPERTIES};
         VkPhysicalDeviceProperties2 p2{VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_PROPERTIES_2};
-        p2.pNext = &sgc;
+        p2.pNext = &subgroup;
+        if (api >= VK_API_VERSION_1_3) subgroup.pNext = &sgc;
         p_vkGetPhysicalDeviceProperties2(g_physical, &p2);
+        g_spirv_features.subgroup_stages = subgroup.supportedStages;
+        g_spirv_features.subgroup_operations = subgroup.supportedOperations;
+        g_spirv_features.subgroup_quad_all_stages = subgroup.quadOperationsInAllStages;
         const char* e = std::getenv("NX_SUBGROUP32");
         bool can = f13.subgroupSizeControl && sgc.minSubgroupSize <= 32 && sgc.maxSubgroupSize >= 32 &&
                    (sgc.requiredSubgroupSizeStages & VK_SHADER_STAGE_COMPUTE_BIT);
@@ -322,6 +328,16 @@ bool init() {
     log("nvn/vk: Vulkan %u.%u device, dynamic rendering %s", VK_API_VERSION_MAJOR(api), VK_API_VERSION_MINOR(api),
         g_dynamic_rendering ? "yes" : "no: render pass objects");
     g_features = features.features;
+    g_spirv_features.geometry = g_features.geometryShader;
+    g_spirv_features.tessellation = g_features.tessellationShader;
+    g_spirv_features.float64 = g_features.shaderFloat64;
+    g_spirv_features.int64 = g_features.shaderInt64;
+    g_spirv_features.int16 = g_features.shaderInt16;
+    g_spirv_features.float16 = api >= VK_API_VERSION_1_2 && f12.shaderFloat16;
+    g_spirv_features.int8 = api >= VK_API_VERSION_1_2 && f12.shaderInt8;
+    g_spirv_features.pixel_interlock = finterlock.fragmentShaderPixelInterlock;
+    g_spirv_features.sample_interlock = finterlock.fragmentShaderSampleInterlock;
+    g_spirv_features.shading_rate_interlock = finterlock.fragmentShaderShadingRateInterlock;
     // NX_ASTC_DECODE=1|linear|srgb: the CPU decoder even where the GPU has ASTC (to compare the two on one GPU).
     set_astc_native(g_features.textureCompressionASTC_LDR);
     log("nvn/vk: ASTC %s", astc_native() ? "native" : "decoded to RGBA8 at upload (no textureCompressionASTC_LDR)");
@@ -545,6 +561,7 @@ uint32_t vk_queue_family() { return g_family; }
 bool vk_depth_clip_control() { return g_depth_clip_control; }
 bool vk_dynamic_rendering() { return g_dynamic_rendering; }
 const VkPhysicalDeviceFeatures& vk_features() { return g_features; }
+const SpirvFeatureSupport& vk_spirv_features() { return g_spirv_features; }
 bool gpu_is_integrated() { return g_integrated; }
 bool gpu_require_subgroup32() { return g_require_sg32; }
 
